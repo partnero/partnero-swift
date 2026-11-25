@@ -5,7 +5,12 @@ struct Client: Sendable {
 
     /// Mirrors the claim endpoint's validation, so bad input fails without a request.
     static let maxCodeLength = 100
+    static let maxClickIdLength = 32
     static let maxAppUserIdLength = 255
+
+    /// Set by Partnero app links on deep links and on the Google Play install referrer.
+    static let codeParameter = "partnero_code"
+    static let clickIdParameter = "partnero_click"
 
     let configuration: Configuration
     let transport: any Transport
@@ -34,8 +39,8 @@ struct Client: Sendable {
     }
 
     @discardableResult
-    func claim(code: String, appUserId: String, codeType: CodeType) async throws -> ClaimResult {
-        let request = try makeRequest(code: code, appUserId: appUserId, codeType: codeType)
+    func claim(code: String?, clickId: String? = nil, appUserId: String, codeType: CodeType) async throws -> ClaimResult {
+        let request = try makeRequest(code: code, clickId: clickId, appUserId: appUserId, codeType: codeType)
 
         let data: Data
         let response: HTTPURLResponse
@@ -53,34 +58,53 @@ struct Client: Sendable {
     }
 
     func claim(url: URL, appUserId: String) async throws -> ClaimResult? {
-        guard let code = try code(from: url) else {
+        let code = try code(from: url)
+        let clickId = clickId(from: url)
+        guard code != nil || clickId != nil else {
             return nil
         }
 
-        return try await claim(code: code, appUserId: appUserId, codeType: .auto)
+        return try await claim(code: code, clickId: clickId, appUserId: appUserId, codeType: .auto)
     }
 
+    /// `partnero_code` from a Partnero app link, otherwise the program's referral parameter.
     func code(from url: URL) throws -> String? {
         guard !configuration.referralParameter.isEmpty else {
             throw PartneroError.invalidInput(field: .referralParameter)
         }
 
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        let value = items.first { $0.name.caseInsensitiveCompare(configuration.referralParameter) == .orderedSame }?.value
-        let code = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        return code.isEmpty ? nil : code
+        return Self.value(of: Self.codeParameter, in: items) ?? Self.value(of: configuration.referralParameter, in: items)
     }
 
-    func makeRequest(code: String, appUserId: String, codeType: CodeType) throws -> URLRequest {
+    /// `partnero_click` from a Partnero app link. A malformed click ID is ignored, since the code alone still claims.
+    func clickId(from url: URL) -> String? {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+
+        return Self.value(of: Self.clickIdParameter, in: items).flatMap { Self.isValidClickId($0) ? $0 : nil }
+    }
+
+    func makeRequest(code: String?, clickId: String? = nil, appUserId: String, codeType: CodeType) throws -> URLRequest {
         let programId = configuration.programId
-        let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let code = Self.nonEmpty(code)
+        let clickId = Self.nonEmpty(clickId)
         let appUserId = appUserId.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !programId.isEmpty, programId.allSatisfy(Self.isIdentifierCharacter) else {
             throw PartneroError.invalidInput(field: .programId)
         }
-        guard !code.isEmpty, code.count <= Self.maxCodeLength, code.allSatisfy(Self.isIdentifierCharacter) else {
+        if let code {
+            guard code.count <= Self.maxCodeLength, code.allSatisfy(Self.isIdentifierCharacter) else {
+                throw PartneroError.invalidInput(field: .code)
+            }
+        }
+        if let clickId {
+            guard Self.isValidClickId(clickId) else {
+                throw PartneroError.invalidInput(field: .clickId)
+            }
+        }
+        guard code != nil || clickId != nil else {
             throw PartneroError.invalidInput(field: .code)
         }
         guard Self.isValidAppUserId(appUserId) else {
@@ -89,10 +113,13 @@ struct Client: Sendable {
 
         var body: [String: String] = [
             "app_user_id": appUserId,
-            "code": code,
-            "code_type": codeType.rawValue,
             "platform": platform,
         ]
+        if let code {
+            body["code"] = code
+            body["code_type"] = codeType.rawValue
+        }
+        body["click_id"] = clickId
         body["first_seen_at"] = firstSeenAt
 
         var request = URLRequest(url: endpoint(programId: programId), timeoutInterval: 15)
@@ -149,6 +176,20 @@ struct Client: Sendable {
         default:
             throw PartneroError.server(status: response.statusCode, message: message)
         }
+    }
+
+    static func isValidClickId(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= maxClickIdLength && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+    }
+
+    private static func value(of name: String, in items: [URLQueryItem]) -> String? {
+        nonEmpty(items.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     static func isIdentifierCharacter(_ character: Character) -> Bool {

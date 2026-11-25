@@ -32,6 +32,38 @@ import Testing
         #expect(transport.lastBody?["code_type"] == "promotion_code")
     }
 
+    @Test func sendsTheClickIdWithTheCode() async throws {
+        let transport = StubTransport()
+
+        try await Client.stub(transport: transport).claim(code: "SAM20", clickId: " a1B2c3 ", appUserId: "user_8f2k", codeType: .auto)
+
+        #expect(transport.lastBody?["code"] == "SAM20")
+        #expect(transport.lastBody?["click_id"] == "a1B2c3")
+    }
+
+    @Test func claimsByClickIdAlone() async throws {
+        let transport = StubTransport()
+
+        try await Client.stub(transport: transport).claim(code: nil, clickId: "a1B2c3", appUserId: "user_8f2k", codeType: .auto)
+
+        #expect(transport.lastBody == [
+            "app_user_id": "user_8f2k",
+            "click_id": "a1B2c3",
+            "platform": "ios",
+            "first_seen_at": "2026-11-17T07:20:00.000Z",
+        ])
+    }
+
+    @Test(arguments: ["a1-b2", "a1 b2", String(repeating: "a", count: 33)])
+    func rejectsAnInvalidClickIdWithoutARequest(clickId: String) async {
+        let transport = StubTransport()
+
+        await #expect(throws: PartneroError.invalidInput(field: .clickId)) {
+            try await Client.stub(transport: transport).claim(code: nil, clickId: clickId, appUserId: "user_8f2k", codeType: .auto)
+        }
+        #expect(transport.requestCount == 0)
+    }
+
     @Test func usesTheBaseURLOverride() async throws {
         let transport = StubTransport()
         let client = Client.stub(transport: transport, baseURL: link("https://staging.example.com/"))
@@ -161,6 +193,46 @@ import Testing
 
         #expect(result?.status == .claimed)
         #expect(transport.lastBody?["code"] == "SAM20")
+    }
+
+    @Test func readsAPartneroAppLink() throws {
+        let url = link("myapp://claim?partnero_code=SAM20&partnero_click=a1B2c3&ref=OTHER")
+
+        #expect(try Client.stub().code(from: url) == "SAM20")
+        #expect(Client.stub().clickId(from: url) == "a1B2c3")
+    }
+
+    @Test func claimsAnAppLinkWithItsClick() async throws {
+        let transport = StubTransport()
+
+        try await Client.stub(transport: transport)
+            .claim(url: link("myapp://claim?partnero_code=SAM20&partnero_click=a1B2c3"), appUserId: "user_8f2k")
+
+        #expect(transport.lastBody?["code"] == "SAM20")
+        #expect(transport.lastBody?["click_id"] == "a1B2c3")
+    }
+
+    @Test func claimsALinkWithOnlyAClick() async throws {
+        let transport = StubTransport()
+
+        try await Client.stub(transport: transport).claim(url: link("myapp://claim?partnero_click=a1B2c3"), appUserId: "user_8f2k")
+
+        #expect(transport.lastBody?["click_id"] == "a1B2c3")
+        #expect(transport.lastBody?["code"] == nil)
+    }
+
+    @Test func ignoresAMalformedClickInALink() async throws {
+        let transport = StubTransport()
+
+        try await Client.stub(transport: transport)
+            .claim(url: link("https://example.com/?ref=SAM20&partnero_click=not-valid"), appUserId: "user_8f2k")
+
+        #expect(transport.lastBody?["code"] == "SAM20")
+        #expect(transport.lastBody?["click_id"] == nil)
+    }
+
+    @Test func defaultsToTheAffiliateReferralParameter() {
+        #expect(Configuration(programId: "YB9YT4ER").referralParameter == "aff")
     }
 
     @Test func doesNotCallPartneroForALinkWithoutACode() async throws {

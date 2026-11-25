@@ -13,8 +13,13 @@ public enum Partnero {
     /// - Parameters:
     ///   - programId: The program's Program ID, shown on its Integration page in Partnero.
     ///   - baseURL: Overrides `https://app.partnero.com`, for example for staging.
-    ///   - referralParameter: The query parameter that holds the code in your referral links, such as `aff`.
-    public static func configure(programId: String, baseURL: URL? = nil, referralParameter: String = "ref") {
+    ///   - referralParameter: The query parameter that holds the code in your own referral links. Partnero app
+    ///     links are read either way.
+    public static func configure(
+        programId: String,
+        baseURL: URL? = nil,
+        referralParameter: String = "aff"
+    ) {
         shared.set(Client(configuration: Configuration(
             programId: programId,
             baseURL: baseURL ?? Configuration.defaultBaseURL,
@@ -27,13 +32,29 @@ public enum Partnero {
     /// Use the same ID your purchases are reported under, such as `Purchases.shared.appUserID`
     /// once the user is identified. Anonymous RevenueCat IDs are rejected, because they change on reinstall.
     ///
+    /// Pass `clickId` when the code came from a Partnero app link, so the customer is tied to the partner's click.
+    /// The click is ignored if it belongs to a different partner than the code.
+    ///
     /// Throws `PartneroError`, or `CancellationError` if the task is cancelled.
     @discardableResult
-    public static func claim(code: String, appUserId: String, codeType: CodeType = .auto) async throws -> ClaimResult {
-        try await client().claim(code: code, appUserId: appUserId, codeType: codeType)
+    public static func claim(
+        code: String,
+        appUserId: String,
+        codeType: CodeType = .auto,
+        clickId: String? = nil
+    ) async throws -> ClaimResult {
+        try await client().claim(code: code, clickId: clickId, appUserId: appUserId, codeType: codeType)
     }
 
-    /// Claims the code in a referral or deep link. Returns `nil` when the link has no code.
+    /// Attributes `appUserId` to the partner whose app link was clicked, using the click ID alone.
+    ///
+    /// Throws `PartneroError`, or `CancellationError` if the task is cancelled.
+    @discardableResult
+    public static func claim(clickId: String, appUserId: String) async throws -> ClaimResult {
+        try await client().claim(code: nil, clickId: clickId, appUserId: appUserId, codeType: .auto)
+    }
+
+    /// Claims the code and click ID in a referral or deep link. Returns `nil` when the link has neither.
     @discardableResult
     public static func claim(url: URL, appUserId: String) async throws -> ClaimResult? {
         try await client().claim(url: url, appUserId: appUserId)
@@ -42,6 +63,11 @@ public enum Partnero {
     /// The code in a referral or deep link, or `nil` when it has none.
     public static func code(from url: URL) throws -> String? {
         try client().code(from: url)
+    }
+
+    /// The click ID in a Partnero app link, or `nil` when it has none.
+    public static func clickId(from url: URL) throws -> String? {
+        try client().clickId(from: url)
     }
 
     /// Subscriber attributes for RevenueCat, so a purchase is still attributed if the claim never reached Partnero.

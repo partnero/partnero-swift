@@ -29,6 +29,7 @@ public enum PartneroError: Error, Sendable, Equatable {
         case programId
         case referralParameter
         case code
+        case clickId
         case appUserId
         case codeType
         case firstSeenAt
@@ -40,6 +41,7 @@ public enum PartneroError: Error, Sendable, Equatable {
             switch serverName {
             case "app_user_id": self = .appUserId
             case "code": self = .code
+            case "click_id": self = .clickId
             case "code_type": self = .codeType
             case "first_seen_at": self = .firstSeenAt
             case "platform": self = .platform
@@ -52,7 +54,7 @@ public enum PartneroError: Error, Sendable, Equatable {
     case notConfigured
     /// A value was blank or malformed. Checked before any request, and again by Partnero.
     case invalidInput(field: Field)
-    /// No active code matches, or mobile claims are turned off for the program.
+    /// No active code or click matches, or mobile claims are turned off for the program.
     case codeNotFound
     /// The code matches more than one partner (pass a `CodeType`), or the program's claim window has closed.
     case codeConflict(message: String)
