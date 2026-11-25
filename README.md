@@ -103,7 +103,7 @@ if let code {
 
 Each partner gets an app link in their Partnero portal, such as `https://app.partnero.com/a/YOUR_PROGRAM_ID/SAM20`, or `https://go.yourbrand.com/a/SAM20` on your own tracking domain. Opening it counts a click for the partner, then opens your app.
 
-In the **Tracking for mobile apps** section, set **Deep link** to a link your app handles, with `{code}` and `{click_id}` where Partnero should put them:
+In the **Tracking for mobile apps** section, turn on **Enable app links** and set **Deep link** to a link your app handles, with `{code}` and `{click_id}` where Partnero should put them:
 
 ```
 myapp://claim?partnero_code={code}&partnero_click={click_id}
